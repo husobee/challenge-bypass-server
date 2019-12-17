@@ -21,6 +21,7 @@ type IssuerResponse struct {
 type IssuerCreateRequest struct {
 	Name      string `json:"name"`
 	MaxTokens int    `json:"max_tokens"`
+	ExpiresAt string `json:"expires_at"`
 }
 
 func (c *Server) getIssuer(issuerType string) (*Issuer, *handlers.AppError) {
@@ -68,7 +69,7 @@ func (c *Server) issuerCreateHandler(w http.ResponseWriter, r *http.Request) *ha
 		return handlers.WrapError("Could not parse the request body", err)
 	}
 
-	if err := c.createIssuer(req.Name, req.MaxTokens); err != nil {
+	if err := c.createIssuer(req.Name, req.MaxTokens, req.ExpiresAt); err != nil {
 		log.Errorf("%s", err)
 		return &handlers.AppError{
 			Error:   err,

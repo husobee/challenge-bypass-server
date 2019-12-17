@@ -26,9 +26,11 @@ type DbConfig struct {
 }
 
 type Issuer struct {
+	Id         string
 	IssuerType string
 	SigningKey *crypto.SigningKey
 	MaxTokens  int
+	ExpiresAt  string
 }
 
 type Redemption struct {
@@ -94,7 +96,7 @@ func (c *Server) fetchIssuer(issuerType string) (*Issuer, error) {
 	}
 
 	rows, err := c.db.Query(
-		`SELECT issuer_type, signing_key, max_tokens FROM issuers WHERE issuer_type=$1`, issuerType)
+		`SELECT issuer_type, signing_key, max_tokens FROM issuers WHERE issuer_type=$1 ORDER BY expires_at, created_at DESC LIMIT 1`, issuerType)
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +130,7 @@ func (c *Server) fetchIssuer(issuerType string) (*Issuer, error) {
 	return nil, IssuerNotFoundError
 }
 
-func (c *Server) createIssuer(issuerType string, maxTokens int) error {
+func (c *Server) createIssuer(issuerType string, maxTokens int, expiresAt string) error {
 	if maxTokens == 0 {
 		maxTokens = 40
 	}
@@ -143,8 +145,10 @@ func (c *Server) createIssuer(issuerType string, maxTokens int) error {
 		return err
 	}
 
+	//expiresAt > now
+
 	rows, err := c.db.Query(
-		`INSERT INTO issuers(issuer_type, signing_key, max_tokens) VALUES ($1, $2, $3)`, issuerType, signingKeyTxt, maxTokens)
+		`INSERT INTO issuers(issuer_type, signing_key, max_tokens, expires_at) VALUES ($1, $2, $3, $4)`, issuerType, signingKeyTxt, maxTokens, expiresAt)
 	if err != nil {
 		return err
 	}
