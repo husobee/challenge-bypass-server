@@ -147,11 +147,18 @@ func (c *Server) fetchIssuers(issuerType string) (*[]Issuer, error) {
 func (c *Server) rotateIssuers() error {
 	cfg := c.dbConfig
 
-	rows, err := c.db.Query(
-		`SELECT id, issuer_type, expires_at FROM issuers 
+	tx, err := c.db.Begin();
+	if err != nil {
+		return err;
+	}
+
+	defer tx.Rollback()
+
+	rows, err := tx.Query(
+		`SELECT id, issuer_type, expires_at, max_tokens FROM issuers 
 			WHERE expires_at != NULL 
-			&& expires_at > NOW() - INTERVAL '$1 day'
-			&& expires_at < NOW()
+			AND expires_at > NOW() - $1 * INTERVAL '1 day'
+			AND expires_at < NOW()
 		FOR UPDATE SKIP LOCKED`, cfg.ExpirationWindow,
 	)
 	if err != nil {
@@ -159,22 +166,57 @@ func (c *Server) rotateIssuers() error {
 	}
 	if rows.Next() {
 		var issuer = &Issuer{};
-		if err := rows.Scan(&issuer.ID, &issuer.IssuerType, &issuer.SigningKey, &issuer.ExpiresAt); err != nil {
+		if err := rows.Scan(&issuer.ID, &issuer.IssuerType, &issuer.ExpiresAt, &issuer.MaxTokens); err != nil {
 			return err
 		}
-		c.createIssuer(issuer.IssuerType, issuer.MaxTokens, issuer.ExpiresAt.AddDate(0, 0, c.dbConfig.RenewalWindow))
+
+		if issuer.MaxTokens == 0 {
+			issuer.MaxTokens = 40
+		}
+	
+		signingKey, err := crypto.RandomSigningKey()
+		if err != nil {
+			return err
+		}
+	
+		signingKeyTxt, err := signingKey.MarshalText()
+		if err != nil {
+			return err
+		}
+	
+		if _, err = tx.Exec(
+			`INSERT INTO issuers(issuer_type, signing_key, max_tokens, expires_at) VALUES ($1, $2, $3, $4)`, 
+			issuer.IssuerType, 
+			signingKeyTxt,
+			issuer.MaxTokens, 
+			issuer.ExpiresAt.AddDate(0, 0, cfg.RenewalWindow).Format("2006-01-02"),
+		); err != nil {
+			return err
+		}
 	}
 
 	defer rows.Close()
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
 
 	return nil
 }
 
 func (c *Server) retireIssuers() error {
-	rows, err := c.db.Query(`
+	tx, err := c.db.Begin();
+	if err != nil {
+		return err;
+	}
+
+	defer tx.Rollback()
+
+	rows, err := tx.Query(`
 		SELECT id FROM issuers
-		WHERE expires_at != NULL
-		expires_at > now()
+			WHERE expires_at != NULL
+			AND expires_at >= now()
+		FOR UPDATE SKIP LOCKED
 	`)
 	if err != nil {
 		return err
@@ -185,12 +227,20 @@ func (c *Server) retireIssuers() error {
 		if err := rows.Scan(&issuer.ID); err != nil {
 			return err
 		}
-		c.db.Query(`
+		tx.Exec(`
 			CREATE TABLE redemptions_` + issuer.ID + ` PARTITION OF redemptions
 			FOR VALUES IN ('$1')
 		`, issuer.ID)
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
 	defer rows.Close()
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
 
 	return nil
 }

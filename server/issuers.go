@@ -87,9 +87,7 @@ func (c *Server) issuerCreateHandler(w http.ResponseWriter, r *http.Request) *ha
 		return handlers.WrapError("Could not parse the request body", err)
 	}
 
-	log.Errorf(req.ExpiresAt)
 	var t time.Time
-
 	if req.ExpiresAt != "" {
 		layout := "2006-01-02"
 		t, err := time.Parse(layout, req.ExpiresAt)
