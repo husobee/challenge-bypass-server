@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/brave-intl/bat-go/middleware"
 	"github.com/brave-intl/bat-go/utils/closers"
@@ -70,8 +71,8 @@ func (c *Server) issuerCreateHandler(w http.ResponseWriter, r *http.Request) *ha
 	}
 
 	layout := "2006-01-02"
-	t, _ := time.Parse(layout, req.ExpiresAt)
-	if t.before(time.Now()) {
+	t, err := time.Parse(layout, req.ExpiresAt)
+	if t.Before(time.Now()) {
 		return &handlers.AppError{
 			Error:   err,
 			Message: "Expiration time has past",

@@ -23,6 +23,8 @@ type DbConfig struct {
 	ConnectionURI string        `json:"connectionURI"`
 	CachingConfig CachingConfig `json:"caching"`
 	MaxConnection int           `json:"maxConnection"`
+	ExpirationWindow int        `json:"expirationWindow"`
+	RenewalWindow int           `json:"renewalWindow"`
 }
 
 type Issuer struct {
@@ -30,7 +32,7 @@ type Issuer struct {
 	IssuerType string
 	SigningKey *crypto.SigningKey
 	MaxTokens  int
-	ExpiresAt  string
+	ExpiresAt  time.Time
 }
 
 type Redemption struct {
@@ -138,7 +140,7 @@ func (c *Server) rotateIssuers() error {
 			WHERE expires_at != NULL 
 			&& expires_at > NOW() - INTERVAL '$1 day'
 			&& expires_at < NOW()
-		FOR UPDATE SKIP LOCKED`, c
+		FOR UPDATE SKIP LOCKED`, cfg.ExpirationWindow,
 	)
 	if err != nil {
 		return err
@@ -146,21 +148,17 @@ func (c *Server) rotateIssuers() error {
 	if rows.Next() {
 		var issuer = &Issuer{};
 		if err := rows.Scan(&issuer.Id, &issuer.IssuerType, &issuer.SigningKey, &issuer.ExpiresAt); err != nil {
-			return nil, err
+			return err
 		}
-		c.db.createIssuer(issuer.IssuerType, issuer.MaxTokens, issuer.ExpiresAt.Add(c.dbConfig.RenewalWindow*time.Day))
+		c.createIssuer(issuer.IssuerType, issuer.MaxTokens, issuer.ExpiresAt.AddDate(0, 0, c.dbConfig.RenewalWindow))
 	}
 
 	defer rows.Close()
 
-	rows, err := c.db.Query(
-		`INSERT INTO issuers(issuer_type, signing_key, max_tokens, expires_at) VALUES ($1, $2, $3, $4)`, issuerType, signingKeyTxt, maxTokens, expiresAt)
-	if err != nil {
-		return err
-	}
+	return nil
 }
 
-func (c *Server) s() error {
+func (c *Server) retireIssuers() error {
 	rows, err := c.db.Query(`
 		SELECT id FROM issuers
 		WHERE expires_at != NULL
@@ -173,17 +171,19 @@ func (c *Server) s() error {
 	if rows.Next() {
 		var issuer = &Issuer{};
 		if err := rows.Scan(&issuer.Id); err != nil {
-			return nil, err
+			return err
 		}
 		c.db.Query(`
 			CREATE TABLE redemptions_` + issuer.Id + ` PARTITION OF redemptions
 			FOR VALUES IN ('$1')
-		`, Issuer.Id)
+		`, issuer.Id)
 	}
 	defer rows.Close()
+
+	return nil
 }
 
-func (c *Server) createIssuer(issuerType string, maxTokens int, expiresAt time) error {
+func (c *Server) createIssuer(issuerType string, maxTokens int, expiresAt time.Time) error {
 	if maxTokens == 0 {
 		maxTokens = 40
 	}
@@ -203,7 +203,7 @@ func (c *Server) createIssuer(issuerType string, maxTokens int, expiresAt time) 
 		issuerType, 
 		signingKeyTxt,
 		maxTokens, 
-		expiresAt.format("2006-01-02")
+		expiresAt.Format("2006-01-02"),
 	)
 	if err != nil {
 		return err
