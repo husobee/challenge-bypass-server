@@ -26,7 +26,25 @@ type issuerCreateRequest struct {
 }
 
 func (c *Server) getIssuer(issuerType string) (*Issuer, *handlers.AppError) {
-	issuer, err := c.fetchIssuer(issuerType)
+	issuer, err := c.fetchIssuers(issuerType)
+	if err != nil {
+		if err == errIssuerNotFound {
+			return nil, &handlers.AppError{
+				Message: "Issuer not found",
+				Code:    404,
+			}
+		}
+		return nil, &handlers.AppError{
+			Error:   err,
+			Message: "Error finding issuer",
+			Code:    500,
+		}
+	}
+	return &(*issuer)[0], nil
+}
+
+func (c *Server) getIssuers(issuerType string) (*[]Issuer, *handlers.AppError) {
+	issuer, err := c.fetchIssuers(issuerType)
 	if err != nil {
 		if err == errIssuerNotFound {
 			return nil, &handlers.AppError{
@@ -51,7 +69,6 @@ func (c *Server) issuerHandler(w http.ResponseWriter, r *http.Request) *handlers
 		if appErr != nil {
 			return appErr
 		}
-
 		err := json.NewEncoder(w).Encode(issuerResponse{issuer.IssuerType, issuer.SigningKey.PublicKey()})
 		if err != nil {
 			panic(err)
@@ -72,7 +89,7 @@ func (c *Server) issuerCreateHandler(w http.ResponseWriter, r *http.Request) *ha
 
 	log.Errorf(req.ExpiresAt)
 	var t time.Time
-	
+
 	if req.ExpiresAt != "" {
 		layout := "2006-01-02"
 		t, err := time.Parse(layout, req.ExpiresAt)

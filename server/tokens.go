@@ -66,7 +66,7 @@ func (c *Server) blindedTokenIssuerHandler(w http.ResponseWriter, r *http.Reques
 
 func (c *Server) blindedTokenRedeemHandler(w http.ResponseWriter, r *http.Request) *handlers.AppError {
 	if issuerType := chi.URLParam(r, "type"); issuerType != "" {
-		issuer, appErr := c.getIssuer(issuerType)
+		issuers, appErr := c.getIssuers(issuerType)
 		if appErr != nil {
 			return appErr
 		}
@@ -84,23 +84,38 @@ func (c *Server) blindedTokenRedeemHandler(w http.ResponseWriter, r *http.Reques
 			}
 		}
 
-		if err := btd.VerifyTokenRedemption(request.TokenPreimage, request.Signature, request.Payload, []*crypto.SigningKey{issuer.SigningKey}); err != nil {
-			return handlers.WrapError("Could not verify that token redemption is valid", err)
+		var verified = false
+		var verifiedIssuer = &Issuer{}
+		for _, issuer := range *issuers {
+			if err := btd.VerifyTokenRedemption(request.TokenPreimage, request.Signature, request.Payload, []*crypto.SigningKey{issuer.SigningKey}); err != nil {
+				verified = false
+			} else {
+				verified = true
+				verifiedIssuer = &issuer
+				break
+			}
 		}
 
-		if err := c.redeemToken(issuerType, request.TokenPreimage, request.Payload); err != nil {
+		if verified == false {
+			return &handlers.AppError{
+				Message: "Could not verify that token redemption is valid",
+				Code:    http.StatusBadRequest,
+			}
+		}
+
+		if err := c.redeemToken(verifiedIssuer.ID, request.TokenPreimage, request.Payload); err != nil {
 			if err == errDuplicateRedemption {
 				return &handlers.AppError{
 					Message: err.Error(),
 					Code:    http.StatusConflict,
 				}
 			}
-				return &handlers.AppError{
-					Error:   err,
-					Message: "Could not mark token redemption",
-					Code:    http.StatusInternalServerError,
-				}
-			
+			return &handlers.AppError{
+				Error:   err,
+				Message: "Could not mark token redemption",
+				Code:    http.StatusInternalServerError,
+			}
+
 		}
 	}
 	return nil
@@ -117,7 +132,7 @@ func (c *Server) blindedTokenRedemptionHandler(w http.ResponseWriter, r *http.Re
 					Message: err.Error(),
 					Code:    http.StatusBadRequest,
 				}
-			} 
+			}
 			return &handlers.AppError{
 				Error:   err,
 				Message: "Could not check token redemption",

@@ -96,25 +96,27 @@ func (c *Server) initDb() {
 	}
 }
 
-func (c *Server) fetchIssuer(issuerType string) (*Issuer, error) {
+func (c *Server) fetchIssuers(issuerType string) (*[]Issuer, error) {
 	if c.caches != nil {
 		if cached, found := c.caches["issuers"].Get(issuerType); found {
-			return cached.(*Issuer), nil
+			return cached.(*[]Issuer), nil
 		}
 	}
 
 	rows, err := c.db.Query(
-		`SELECT issuer_type, signing_key, max_tokens FROM issuers WHERE issuer_type=$1 ORDER BY expires_at, created_at DESC LIMIT 1`, issuerType)
+		`SELECT id, issuer_type, signing_key, max_tokens FROM issuers WHERE issuer_type=$1 ORDER BY expires_at, created_at DESC`, issuerType)
 	if err != nil {
 		return nil, err
 	}
 
 	defer rows.Close()
 
+	var issuers = []Issuer{}
+
 	if rows.Next() {
 		var signingKey []byte
 		var issuer = &Issuer{}
-		if err := rows.Scan(&issuer.IssuerType, &signingKey, &issuer.MaxTokens); err != nil {
+		if err := rows.Scan(&issuer.ID, &issuer.IssuerType, &signingKey, &issuer.MaxTokens); err != nil {
 			return nil, err
 		}
 
@@ -124,18 +126,22 @@ func (c *Server) fetchIssuer(issuerType string) (*Issuer, error) {
 			return nil, err
 		}
 
-		if c.caches != nil {
-			c.caches["issuers"].SetDefault(issuerType, issuer)
-		}
-
-		return issuer, nil
+		issuers = append(issuers, *issuer);
 	}
 
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
-	return nil, errIssuerNotFound
+	if c.caches != nil {
+		c.caches["issuers"].SetDefault(issuerType, issuers)
+	}
+
+	if len(issuers) < 1 {
+		return nil, errIssuerNotFound
+	}
+
+	return &issuers, nil;
 }
 
 func (c *Server) rotateIssuers() error {
@@ -219,14 +225,15 @@ func (c *Server) createIssuer(issuerType string, maxTokens int, expiresAt time.T
 	return nil
 }
 
-func (c *Server) redeemToken(issuerType string, preimage *crypto.TokenPreimage, payload string) error {
+func (c *Server) redeemToken(issuerID string, preimage *crypto.TokenPreimage, payload string) error {
 	preimageTxt, err := preimage.MarshalText()
 	if err != nil {
 		return err
 	}
 
+
 	rows, err := c.db.Query(
-		`INSERT INTO redemptions(id, issuer_type, ts, payload) VALUES ($1, $2, NOW(), $3)`, preimageTxt, issuerType, payload)
+		`INSERT INTO redemptions(id, issuer_id, ts, payload) VALUES ($1, $2, NOW(), $3)`, preimageTxt, issuerID, payload)
 
 	if err != nil {
 		if err, ok := err.(*pq.Error); ok && err.Code == "23505" { // unique constraint violation
