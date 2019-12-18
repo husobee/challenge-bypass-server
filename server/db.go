@@ -223,7 +223,6 @@ func (c *Server) retireIssuers() error {
 	if err != nil {
 		return err
 	}
-
 	defer tx.Rollback()
 
 	rows, err := tx.Query(`
@@ -231,6 +230,7 @@ func (c *Server) retireIssuers() error {
 			WHERE expires_at IS NOT NULL
 			AND expires_at <= now()
 			AND rotated_at IS NOT NULL
+			AND retired_at IS NULL
 		FOR UPDATE SKIP LOCKED
 	`)
 	if err != nil {
@@ -253,9 +253,14 @@ func (c *Server) retireIssuers() error {
 
 	for _, issuer := range issuers {
 		if _, err = tx.Exec(`
-		CREATE TABLE "redemptions_`+issuer.ID+`" PARTITION OF redemptions
-		FOR VALUES IN ('$1')
-	`, issuer.ID); err != nil {
+			CREATE TABLE "redemptions_` + issuer.ID + `" PARTITION OF redemptions
+			FOR VALUES IN ('` + issuer.ID + `')
+		`); err != nil {
+			return err
+		}
+		if _, err = tx.Exec(`
+			UPDATE issuers SET retired_at = now() WHERE id = $1
+		`, issuer.ID); err != nil {
 			return err
 		}
 	}

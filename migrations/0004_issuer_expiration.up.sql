@@ -4,6 +4,7 @@ ALTER TABLE issuers ADD COLUMN id uuid NOT NULL DEFAULT uuid_generate_v4();
 ALTER TABLE issuers ADD COLUMN created_at timestamp NOT NULL DEFAULT NOW();
 ALTER TABLE issuers ADD COLUMN expires_at timestamp;
 ALTER TABLE issuers ADD COLUMN rotated_at timestamp;
+ALTER TABLE issuers ADD COLUMN retired_at timestamp;
 ALTER TABLE issuers DROP CONSTRAINT issuers_pkey;
 ALTER TABLE issuers ADD PRIMARY KEY (id);
 
@@ -27,5 +28,3 @@ INSERT INTO new_redemptions (id, issuer_id, ts, payload)
 DROP TABLE redemptions;
 
 ALTER TABLE new_redemptions RENAME TO redemptions;
-
---CREATE TABLE redemptions_a1 PARTITION OF redemptions FOR VALUES IN ('aa6ddcce-0f60-40bf-8237-ecba8f0a0f9e');
