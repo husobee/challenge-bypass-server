@@ -65,7 +65,11 @@ var (
 
 // InitDbConfig reads os environment and update conf
 func (c *Server) InitDbConfig() error {
-	conf := DbConfig{}
+	conf := DbConfig{
+		ExpirationWindow: 7,
+		RenewalWindow: 30,
+		MaxConnection: 100,
+	}
 
 	// Heroku style
 	if connectionURI := os.Getenv("DATABASE_URL"); connectionURI != "" {
