@@ -9,16 +9,18 @@ import (
 	crypto "github.com/brave-intl/challenge-bypass-ristretto-ffi"
 	migrate "github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
-	_ "github.com/golang-migrate/migrate/v4/source/file"
+	_ "github.com/golang-migrate/migrate/v4/source/file" // Why?
 	"github.com/lib/pq"
 	cache "github.com/patrickmn/go-cache"
 )
 
+// CachingConfig is how long data is cached
 type CachingConfig struct {
 	Enabled       bool `json:"enabled"`
 	ExpirationSec int  `json:"expirationSec"`
 }
 
+// DbConfig defines app configurations
 type DbConfig struct {
 	ConnectionURI string        `json:"connectionURI"`
 	CachingConfig CachingConfig `json:"caching"`
@@ -27,32 +29,36 @@ type DbConfig struct {
 	RenewalWindow int           `json:"renewalWindow"`
 }
 
+// Issuer of tokens
 type Issuer struct {
-	Id         string
+	ID         string
 	IssuerType string
 	SigningKey *crypto.SigningKey
 	MaxTokens  int
 	ExpiresAt  time.Time
 }
 
+// Redemption is a token Redeemed
 type Redemption struct {
-	IssuerId string    `json:"issuerId"`
-	Id         string    `json:"id"`
+	IssuerID   string    `json:"issuerId"`
+	ID         string    `json:"id"`
 	Timestamp  time.Time `json:"timestamp"`
 	Payload    string    `json:"payload"`
 }
 
+// CacheInterface cach functions
 type CacheInterface interface {
 	Get(k string) (interface{}, bool)
 	SetDefault(k string, x interface{})
 }
 
 var (
-	IssuerNotFoundError      = errors.New("Issuer with the given name does not exist")
-	DuplicateRedemptionError = errors.New("Duplicate Redemption")
-	RedemptionNotFoundError  = errors.New("Redemption with the given id does not exist")
+	errIssuerNotFound      = errors.New("Issuer with the given name does not exist")
+	errDuplicateRedemption = errors.New("Duplicate Redemption")
+	errRedemptionNotFound  = errors.New("Redemption with the given id does not exist")
 )
 
+// LoadDbConfig loads config into server variable
 func (c *Server) LoadDbConfig(config DbConfig) {
 	c.dbConfig = config
 }
@@ -129,7 +135,7 @@ func (c *Server) fetchIssuer(issuerType string) (*Issuer, error) {
 		return nil, err
 	}
 
-	return nil, IssuerNotFoundError
+	return nil, errIssuerNotFound
 }
 
 func (c *Server) rotateIssuers() error {
@@ -147,7 +153,7 @@ func (c *Server) rotateIssuers() error {
 	}
 	if rows.Next() {
 		var issuer = &Issuer{};
-		if err := rows.Scan(&issuer.Id, &issuer.IssuerType, &issuer.SigningKey, &issuer.ExpiresAt); err != nil {
+		if err := rows.Scan(&issuer.ID, &issuer.IssuerType, &issuer.SigningKey, &issuer.ExpiresAt); err != nil {
 			return err
 		}
 		c.createIssuer(issuer.IssuerType, issuer.MaxTokens, issuer.ExpiresAt.AddDate(0, 0, c.dbConfig.RenewalWindow))
@@ -170,13 +176,13 @@ func (c *Server) retireIssuers() error {
 
 	if rows.Next() {
 		var issuer = &Issuer{};
-		if err := rows.Scan(&issuer.Id); err != nil {
+		if err := rows.Scan(&issuer.ID); err != nil {
 			return err
 		}
 		c.db.Query(`
-			CREATE TABLE redemptions_` + issuer.Id + ` PARTITION OF redemptions
+			CREATE TABLE redemptions_` + issuer.ID + ` PARTITION OF redemptions
 			FOR VALUES IN ('$1')
-		`, issuer.Id)
+		`, issuer.ID)
 	}
 	defer rows.Close()
 
@@ -224,7 +230,7 @@ func (c *Server) redeemToken(issuerType string, preimage *crypto.TokenPreimage, 
 
 	if err != nil {
 		if err, ok := err.(*pq.Error); ok && err.Code == "23505" { // unique constraint violation
-			return DuplicateRedemptionError
+			return errDuplicateRedemption
 		}
 		return err
 	}
@@ -233,15 +239,15 @@ func (c *Server) redeemToken(issuerType string, preimage *crypto.TokenPreimage, 
 	return nil
 }
 
-func (c *Server) fetchRedemption(issuerId, id string) (*Redemption, error) {
+func (c *Server) fetchRedemption(issuerID, ID string) (*Redemption, error) {
 	if c.caches != nil {
-		if cached, found := c.caches["redemptions"].Get(fmt.Sprintf("%s:%s", issuerId, id)); found {
+		if cached, found := c.caches["redemptions"].Get(fmt.Sprintf("%s:%s", issuerID, ID)); found {
 			return cached.(*Redemption), nil
 		}
 	}
 
 	rows, err := c.db.Query(
-		`SELECT id, issuer_id, ts, payload FROM redemptions WHERE id = $1 AND issuer_id = $2`, id, issuerId)
+		`SELECT id, issuer_id, ts, payload FROM redemptions WHERE id = $1 AND issuer_id = $2`, ID, issuerID)
 
 	if err != nil {
 		return nil, err
@@ -251,12 +257,12 @@ func (c *Server) fetchRedemption(issuerId, id string) (*Redemption, error) {
 
 	if rows.Next() {
 		var redemption = &Redemption{}
-		if err := rows.Scan(&redemption.Id, &redemption.IssuerId, &redemption.Timestamp, &redemption.Payload); err != nil {
+		if err := rows.Scan(&redemption.ID, &redemption.IssuerID, &redemption.Timestamp, &redemption.Payload); err != nil {
 			return nil, err
 		}
 
 		if c.caches != nil {
-			c.caches["redemptions"].SetDefault(fmt.Sprintf("%s:%s", issuerId, id), redemption)
+			c.caches["redemptions"].SetDefault(fmt.Sprintf("%s:%s", issuerID, ID), redemption)
 		}
 
 		return redemption, nil
@@ -266,5 +272,5 @@ func (c *Server) fetchRedemption(issuerId, id string) (*Redemption, error) {
 		return nil, err
 	}
 
-	return nil, RedemptionNotFoundError
+	return nil, errRedemptionNotFound
 }

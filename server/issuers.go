@@ -14,12 +14,12 @@ import (
 	"github.com/pressly/lg"
 )
 
-type IssuerResponse struct {
+type issuerResponse struct {
 	Name      string            `json:"name"`
 	PublicKey *crypto.PublicKey `json:"public_key"`
 }
 
-type IssuerCreateRequest struct {
+type issuerCreateRequest struct {
 	Name      string `json:"name"`
 	MaxTokens int    `json:"max_tokens"`
 	ExpiresAt string `json:"expires_at"`
@@ -28,7 +28,7 @@ type IssuerCreateRequest struct {
 func (c *Server) getIssuer(issuerType string) (*Issuer, *handlers.AppError) {
 	issuer, err := c.fetchIssuer(issuerType)
 	if err != nil {
-		if err == IssuerNotFoundError {
+		if err == errIssuerNotFound {
 			return nil, &handlers.AppError{
 				Message: "Issuer not found",
 				Code:    404,
@@ -52,7 +52,7 @@ func (c *Server) issuerHandler(w http.ResponseWriter, r *http.Request) *handlers
 			return appErr
 		}
 
-		err := json.NewEncoder(w).Encode(IssuerResponse{issuer.IssuerType, issuer.SigningKey.PublicKey()})
+		err := json.NewEncoder(w).Encode(issuerResponse{issuer.IssuerType, issuer.SigningKey.PublicKey()})
 		if err != nil {
 			panic(err)
 		}
@@ -65,18 +65,27 @@ func (c *Server) issuerCreateHandler(w http.ResponseWriter, r *http.Request) *ha
 	log := lg.Log(r.Context())
 
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxRequestSize))
-	var req IssuerCreateRequest
+	var req issuerCreateRequest
 	if err := decoder.Decode(&req); err != nil {
 		return handlers.WrapError("Could not parse the request body", err)
 	}
 
-	layout := "2006-01-02"
-	t, err := time.Parse(layout, req.ExpiresAt)
-	if t.Before(time.Now()) {
-		return &handlers.AppError{
-			Error:   err,
-			Message: "Expiration time has past",
-			Code:    400,
+	log.Errorf(req.ExpiresAt)
+	var t time.Time
+	
+	if req.ExpiresAt != "" {
+		layout := "2006-01-02"
+		t, err := time.Parse(layout, req.ExpiresAt)
+		if err != nil {
+			log.Errorf("%s", err)
+			return handlers.WrapError("Could not parse the request expires at", err)
+		}
+		if t.Before(time.Now()) {
+			return &handlers.AppError{
+				Error:   err,
+				Message: "Expiration time has past",
+				Code:    400,
+			}
 		}
 	}
 

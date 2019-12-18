@@ -2,7 +2,6 @@ package server
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"os"
 
@@ -13,16 +12,16 @@ import (
 	"github.com/go-chi/chi"
 )
 
-type BlindedTokenIssueRequest struct {
+type blindedTokenIssueRequest struct {
 	BlindedTokens []*crypto.BlindedToken `json:"blinded_tokens"`
 }
 
-type BlindedTokenIssueResponse struct {
+type blindedTokenIssueResponse struct {
 	BatchProof   *crypto.BatchDLEQProof `json:"batch_proof"`
 	SignedTokens []*crypto.SignedToken  `json:"signed_tokens"`
 }
 
-type BlindedTokenRedeemRequest struct {
+type blindedTokenRedeemRequest struct {
 	TokenPreimage *crypto.TokenPreimage         `json:"t"`
 	Signature     *crypto.VerificationSignature `json:"signature"`
 	Payload       string                        `json:"payload"`
@@ -35,7 +34,7 @@ func (c *Server) blindedTokenIssuerHandler(w http.ResponseWriter, r *http.Reques
 			return appErr
 		}
 
-		var request BlindedTokenIssueRequest
+		var request blindedTokenIssueRequest
 
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxRequestSize)).Decode(&request); err != nil {
 			return handlers.WrapError("Could not parse the request body", err)
@@ -57,7 +56,7 @@ func (c *Server) blindedTokenIssuerHandler(w http.ResponseWriter, r *http.Reques
 			}
 		}
 
-		err = json.NewEncoder(w).Encode(BlindedTokenIssueResponse{proof, signedTokens})
+		err = json.NewEncoder(w).Encode(blindedTokenIssueResponse{proof, signedTokens})
 		if err != nil {
 			panic(err)
 		}
@@ -72,7 +71,7 @@ func (c *Server) blindedTokenRedeemHandler(w http.ResponseWriter, r *http.Reques
 			return appErr
 		}
 
-		var request BlindedTokenRedeemRequest
+		var request blindedTokenRedeemRequest
 
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxRequestSize)).Decode(&request); err != nil {
 			return handlers.WrapError("Could not parse the request body", err)
@@ -90,18 +89,18 @@ func (c *Server) blindedTokenRedeemHandler(w http.ResponseWriter, r *http.Reques
 		}
 
 		if err := c.redeemToken(issuerType, request.TokenPreimage, request.Payload); err != nil {
-			if err == DuplicateRedemptionError {
+			if err == errDuplicateRedemption {
 				return &handlers.AppError{
 					Message: err.Error(),
 					Code:    http.StatusConflict,
 				}
-			} else {
+			}
 				return &handlers.AppError{
 					Error:   err,
 					Message: "Could not mark token redemption",
 					Code:    http.StatusInternalServerError,
 				}
-			}
+			
 		}
 	}
 	return nil
@@ -109,21 +108,20 @@ func (c *Server) blindedTokenRedeemHandler(w http.ResponseWriter, r *http.Reques
 
 func (c *Server) blindedTokenRedemptionHandler(w http.ResponseWriter, r *http.Request) *handlers.AppError {
 	if issuerType := chi.URLParam(r, "type"); issuerType != "" {
-		tokenId := r.FormValue("tokenId")
-		fmt.Println(tokenId)
-		redemption, err := c.fetchRedemption(issuerType, tokenId)
+		tokenID := r.FormValue("tokenId")
+
+		redemption, err := c.fetchRedemption(issuerType, tokenID)
 		if err != nil {
-			if err == RedemptionNotFoundError {
+			if err == errRedemptionNotFound {
 				return &handlers.AppError{
 					Message: err.Error(),
 					Code:    http.StatusBadRequest,
 				}
-			} else {
-				return &handlers.AppError{
-					Error:   err,
-					Message: "Could not check token redemption",
-					Code:    http.StatusInternalServerError,
-				}
+			} 
+			return &handlers.AppError{
+				Error:   err,
+				Message: "Could not check token redemption",
+				Code:    http.StatusInternalServerError,
 			}
 		}
 

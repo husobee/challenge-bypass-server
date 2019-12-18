@@ -109,7 +109,7 @@ func TestIssueRedeem(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var issuerResp IssuerResponse
+	var issuerResp issuerResponse
 	err = json.Unmarshal(body, &issuerResp)
 	if err != nil {
 		t.Fatal(err)
@@ -144,7 +144,7 @@ func TestIssueRedeem(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var decodedResp BlindedTokenIssueResponse
+	var decodedResp blindedTokenIssueResponse
 	err = json.Unmarshal(body, &decodedResp)
 	if err != nil {
 		t.Fatal(err)

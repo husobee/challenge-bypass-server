@@ -20,14 +20,15 @@ import (
 )
 
 var (
-	Version        = "dev"
+	version        = "dev"
 	maxRequestSize = int64(20 * 1024) // ~10kB is expected size for 100*base64([64]byte) + ~framing
 
-	ErrNoSecretKey         = errors.New("server config does not contain a key")
-	ErrRequestTooLarge     = errors.New("request too large to process")
-	ErrUnrecognizedRequest = errors.New("received unrecognized request type")
+	errNoSecretKey         = errors.New("server config does not contain a key")
+	errRequestTooLarge     = errors.New("request too large to process")
+	errUnrecognizedRequest = errors.New("received unrecognized request type")
 )
 
+// Server is the main app service
 type Server struct {
 	ListenPort   int    `json:"listen_port,omitempty"`
 	MaxTokens    int    `json:"max_tokens,omitempty"`
@@ -38,10 +39,12 @@ type Server struct {
 	caches   map[string]CacheInterface
 }
 
+// DefaultServer on port
 var DefaultServer = &Server{
 	ListenPort: 2416,
 }
 
+// LoadConfigFile loads a file into conf and returns
 func LoadConfigFile(filePath string) (Server, error) {
 	conf := *DefaultServer
 	data, err := ioutil.ReadFile(filePath)
@@ -56,9 +59,11 @@ func LoadConfigFile(filePath string) (Server, error) {
 }
 
 var (
-	ErrEmptyDbConfigPath = errors.New("no db config path specified")
+	errEmptyDbConfigPath = errors.New("no db config path specified")
 )
 
+
+// InitDbConfig reads os environment and update conf
 func (c *Server) InitDbConfig() error {
 	conf := DbConfig{}
 
@@ -90,6 +95,7 @@ func (c *Server) InitDbConfig() error {
 	return nil
 }
 
+// SetupLogger creates a logger to use
 func SetupLogger(ctx context.Context) (context.Context, *logrus.Logger) {
 	logger := logrus.New()
 
@@ -124,6 +130,7 @@ func (c *Server) setupRouter(ctx context.Context, logger *logrus.Logger) (contex
 	return ctx, r
 }
 
+// ListenAndServe listen to ports and mount handlers
 func (c *Server) ListenAndServe(ctx context.Context, logger *logrus.Logger) error {
 	addr := fmt.Sprintf(":%d", c.ListenPort)
 	srv := http.Server{Addr: addr, Handler: chi.ServerBaseContext(c.setupRouter(ctx, logger))}
