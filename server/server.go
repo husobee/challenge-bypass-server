@@ -73,6 +73,18 @@ func (c *Server) InitDbConfig() error {
 		}
 	}
 
+	if expirationWindow := os.Getenv("EXPIRATION_WINDOW"); expirationWindow != "" {
+		if count, err := strconv.Atoi(expirationWindow); err == nil {
+			conf.ExpirationWindow = count
+		}
+	}
+
+	if renewalWindow := os.Getenv("RENEWAL_WINDOW"); renewalWindow != "" {
+		if count, err := strconv.Atoi(renewalWindow); err == nil {
+			conf.RenewalWindow = count
+		}
+	}
+
 	c.LoadDbConfig(conf)
 
 	return nil

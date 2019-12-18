@@ -69,7 +69,17 @@ func (c *Server) issuerCreateHandler(w http.ResponseWriter, r *http.Request) *ha
 		return handlers.WrapError("Could not parse the request body", err)
 	}
 
-	if err := c.createIssuer(req.Name, req.MaxTokens, req.ExpiresAt); err != nil {
+	layout := "2006-01-02"
+	t, _ := time.Parse(layout, req.ExpiresAt)
+	if t.before(time.Now()) {
+		return &handlers.AppError{
+			Error:   err,
+			Message: "Expiration time has past",
+			Code:    400,
+		}
+	}
+
+	if err := c.createIssuer(req.Name, req.MaxTokens, t); err != nil {
 		log.Errorf("%s", err)
 		return &handlers.AppError{
 			Error:   err,
