@@ -106,7 +106,10 @@ func (c *Server) fetchIssuers(issuerType string) (*[]Issuer, error) {
 	}
 
 	rows, err := c.db.Query(
-		`SELECT id, issuer_type, signing_key, max_tokens FROM issuers WHERE issuer_type=$1 ORDER BY expires_at DESC NULLS LAST, created_at DESC`, issuerType)
+		`SELECT id, issuer_type, signing_key, max_tokens 
+		FROM issuers 
+		WHERE issuer_type=$1 AND retired_at IS NULL
+		ORDER BY expires_at DESC NULLS LAST, created_at DESC`, issuerType)
 	if err != nil {
 		return nil, err
 	}
