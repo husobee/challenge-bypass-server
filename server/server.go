@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -20,12 +19,7 @@ import (
 )
 
 var (
-	version        = "dev"
 	maxRequestSize = int64(20 * 1024) // ~10kB is expected size for 100*base64([64]byte) + ~framing
-
-	errNoSecretKey         = errors.New("server config does not contain a key")
-	errRequestTooLarge     = errors.New("request too large to process")
-	errUnrecognizedRequest = errors.New("received unrecognized request type")
 )
 
 // Server is the main app service
@@ -57,11 +51,6 @@ func LoadConfigFile(filePath string) (Server, error) {
 	}
 	return conf, nil
 }
-
-var (
-	errEmptyDbConfigPath = errors.New("no db config path specified")
-)
-
 
 // InitDbConfig reads os environment and update conf
 func (c *Server) InitDbConfig() error {

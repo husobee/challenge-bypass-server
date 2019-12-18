@@ -96,7 +96,7 @@ func (c *Server) blindedTokenRedeemHandler(w http.ResponseWriter, r *http.Reques
 			}
 		}
 
-		if verified == false {
+		if !verified {
 			return &handlers.AppError{
 				Message: "Could not verify that token redemption is valid",
 				Code:    http.StatusBadRequest,
