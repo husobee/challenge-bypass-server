@@ -37,14 +37,23 @@ type Issuer struct {
 	MaxTokens  int
 	ExpiresAt  time.Time
 	RotatedAt  time.Time
+	Version    int
 }
 
 // Redemption is a token Redeemed
 type Redemption struct {
-	IssuerID  string    `json:"issuerId"`
-	ID        string    `json:"id"`
-	Timestamp time.Time `json:"timestamp"`
-	Payload   string    `json:"payload"`
+	IssuerType string    `json:"issuerType"`
+	ID         string    `json:"id"`
+	Timestamp  time.Time `json:"timestamp"`
+	Payload    string    `json:"payload"`
+}
+
+// RedemptionV2 is a token Redeemed
+type RedemptionV2 struct {
+	IssuerID string    `json:"issuerID"`
+	ID         string    `json:"id"`
+	Timestamp  time.Time `json:"timestamp"`
+	Payload    string    `json:"payload"`
 }
 
 // CacheInterface cach functions
@@ -98,6 +107,53 @@ func (c *Server) initDb() {
 	}
 }
 
+func (c *Server) fetchIssuer(issuerID string) (*Issuer, error) {
+	if c.caches != nil {
+		if cached, found := c.caches["issuer"].Get(issuerID); found {
+			return cached.(*Issuer), nil
+		}
+	}
+
+	rows, err := c.db.Query(
+		`SELECT id, issuer_type, signing_key, max_tokens, version 
+		FROM issuers 
+		WHERE id=$1 AND retired_at IS NULL
+		ORDER BY expires_at DESC NULLS LAST, created_at DESC`, issuerID)
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+
+	var issuer = &Issuer{}
+
+	for rows.Next() {
+		var signingKey []byte
+		if err := rows.Scan(&issuer.ID, &issuer.IssuerType, &signingKey, &issuer.MaxTokens, &issuer.Version); err != nil {
+			return nil, err
+		}
+
+		issuer.SigningKey = &crypto.SigningKey{}
+		err := issuer.SigningKey.UnmarshalText(signingKey)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if c.caches != nil {
+		c.caches["issuer"].SetDefault(issuerID, issuer)
+	}
+
+	if issuer == nil {
+		return nil, errIssuerNotFound
+	}
+
+	return issuer, nil
+}
+
 func (c *Server) fetchIssuers(issuerType string) (*[]Issuer, error) {
 	if c.caches != nil {
 		if cached, found := c.caches["issuers"].Get(issuerType); found {
@@ -106,7 +162,7 @@ func (c *Server) fetchIssuers(issuerType string) (*[]Issuer, error) {
 	}
 
 	rows, err := c.db.Query(
-		`SELECT id, issuer_type, signing_key, max_tokens 
+		`SELECT id, issuer_type, signing_key, max_tokens, version 
 		FROM issuers 
 		WHERE issuer_type=$1 AND retired_at IS NULL
 		ORDER BY expires_at DESC NULLS LAST, created_at DESC`, issuerType)
@@ -121,7 +177,7 @@ func (c *Server) fetchIssuers(issuerType string) (*[]Issuer, error) {
 	for rows.Next() {
 		var signingKey []byte
 		var issuer = &Issuer{}
-		if err := rows.Scan(&issuer.ID, &issuer.IssuerType, &signingKey, &issuer.MaxTokens); err != nil {
+		if err := rows.Scan(&issuer.ID, &issuer.IssuerType, &signingKey, &issuer.MaxTokens, &issuer.Version); err != nil {
 			return nil, err
 		}
 
@@ -198,7 +254,7 @@ func (c *Server) rotateIssuers() error {
 		}
 
 		if _, err = tx.Exec(
-			`INSERT INTO issuers(issuer_type, signing_key, max_tokens, expires_at) VALUES ($1, $2, $3, $4)`,
+			`INSERT INTO issuers(issuer_type, signing_key, max_tokens, expires_at, version) VALUES ($1, $2, $3, $4, 2)`,
 			issuer.IssuerType,
 			signingKeyTxt,
 			issuer.MaxTokens,
@@ -290,7 +346,7 @@ func (c *Server) createIssuer(issuerType string, maxTokens int, expiresAt *time.
 	}
 
 	rows, err := c.db.Query(
-		`INSERT INTO issuers(issuer_type, signing_key, max_tokens, expires_at) VALUES ($1, $2, $3, $4)`,
+		`INSERT INTO issuers(issuer_type, signing_key, max_tokens, expires_at, version) VALUES ($1, $2, $3, $4, 2)`,
 		issuerType,
 		signingKeyTxt,
 		maxTokens,
@@ -310,14 +366,27 @@ func (c *Server) createIssuer(issuerType string, maxTokens int, expiresAt *time.
 	return nil
 }
 
-func (c *Server) redeemToken(issuerID string, preimage *crypto.TokenPreimage, payload string) error {
+func (c *Server) redeemToken(issuer *Issuer, preimage *crypto.TokenPreimage, payload string) error {
 	preimageTxt, err := preimage.MarshalText()
 	if err != nil {
 		return err
 	}
 
+	if issuer.Version == 1 {
+		rows, err := c.db.Query(
+			`INSERT INTO redemptions(id, issuer_type, ts, payload) VALUES ($1, $2, NOW(), $3)`, preimageTxt, issuer.IssuerType, payload)
+		if err != nil {
+			if err, ok := err.(*pq.Error); ok && err.Code == "23505" { // unique constraint violation
+				return errDuplicateRedemption
+			}
+			return err
+		}
+		defer rows.Close()
+		return nil
+	}
+
 	rows, err := c.db.Query(
-		`INSERT INTO redemptions(id, issuer_id, ts, payload) VALUES ($1, $2, NOW(), $3)`, preimageTxt, issuerID, payload)
+		`INSERT INTO redemptions(id, issuer_id, ts, payload) VALUES ($1, $2, NOW(), $3)`, preimageTxt, issuer.ID, payload)
 
 	if err != nil {
 		if err, ok := err.(*pq.Error); ok && err.Code == "23505" { // unique constraint violation
@@ -330,15 +399,15 @@ func (c *Server) redeemToken(issuerID string, preimage *crypto.TokenPreimage, pa
 	return nil
 }
 
-func (c *Server) fetchRedemption(issuerID, ID string) (*Redemption, error) {
+func (c *Server) fetchRedemption(issuerType, ID string) (*Redemption, error) {
 	if c.caches != nil {
-		if cached, found := c.caches["redemptions"].Get(fmt.Sprintf("%s:%s", issuerID, ID)); found {
+		if cached, found := c.caches["redemptions"].Get(fmt.Sprintf("%s:%s", issuerType, ID)); found {
 			return cached.(*Redemption), nil
 		}
 	}
 
 	rows, err := c.db.Query(
-		`SELECT id, issuer_id, ts, payload FROM redemptions WHERE id = $1 AND issuer_id = $2`, ID, issuerID)
+		`SELECT id, issuer_id, ts, payload FROM redemptions WHERE id = $1 AND issuer_type = $2`, ID, issuerType)
 
 	if err != nil {
 		return nil, err
@@ -348,6 +417,42 @@ func (c *Server) fetchRedemption(issuerID, ID string) (*Redemption, error) {
 
 	if rows.Next() {
 		var redemption = &Redemption{}
+		if err := rows.Scan(&redemption.ID, &redemption.IssuerType, &redemption.Timestamp, &redemption.Payload); err != nil {
+			return nil, err
+		}
+
+		if c.caches != nil {
+			c.caches["redemptions"].SetDefault(fmt.Sprintf("%s:%s", issuerType, ID), redemption)
+		}
+
+		return redemption, nil
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return nil, errRedemptionNotFound
+}
+
+func (c *Server) fetchRedemptionV2(issuerID, ID string) (*RedemptionV2, error) {
+	if c.caches != nil {
+		if cached, found := c.caches["redemptionsV2"].Get(fmt.Sprintf("%s:%s", issuerID, ID)); found {
+			return cached.(*RedemptionV2), nil
+		}
+	}
+
+	rows, err := c.db.Query(
+		`SELECT id, issuer_id, ts, payload FROM redemptions_v2 WHERE id = $1 AND issuer_id = $2`, ID, issuerID)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+
+	if rows.Next() {
+		var redemption = &RedemptionV2{}
 		if err := rows.Scan(&redemption.ID, &redemption.IssuerID, &redemption.Timestamp, &redemption.Payload); err != nil {
 			return nil, err
 		}

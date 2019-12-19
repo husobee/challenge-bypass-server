@@ -7,8 +7,11 @@ ALTER TABLE issuers ADD COLUMN rotated_at timestamp;
 ALTER TABLE issuers ADD COLUMN retired_at timestamp;
 ALTER TABLE issuers DROP CONSTRAINT issuers_pkey;
 ALTER TABLE issuers ADD PRIMARY KEY (id);
+ALTER TABLE issuers ADD COLUMN version integer;
 
-CREATE TABLE new_redemptions (
+UPDATE issuers SET version = 1;
+
+CREATE TABLE redemptions_v2 (
     id text NOT NULL,
     issuer_id uuid NOT NULL REFERENCES issuers(id),
     ts timestamp NOT NULL,
@@ -16,15 +19,4 @@ CREATE TABLE new_redemptions (
     UNIQUE(id, issuer_id)
 ) PARTITION BY LIST (issuer_id);
 
-CREATE TABLE redemptions_default PARTITION OF new_redemptions DEFAULT;
-
-INSERT INTO new_redemptions (id, issuer_id, ts, payload)
-(
-    SELECT redemptions.id, issuers.id, ts, payload
-    FROM redemptions 
-    JOIN issuers using(issuer_type)
-);
-
-DROP TABLE redemptions;
-
-ALTER TABLE new_redemptions RENAME TO redemptions;
+CREATE TABLE redemptions_v2_default PARTITION OF redemptions_v2 DEFAULT;

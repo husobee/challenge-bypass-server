@@ -29,7 +29,7 @@ type blindedTokenRedeemRequest struct {
 
 func (c *Server) blindedTokenIssuerHandler(w http.ResponseWriter, r *http.Request) *handlers.AppError {
 	if issuerType := chi.URLParam(r, "type"); issuerType != "" {
-		issuer, appErr := c.getIssuer(issuerType)
+		issuer, appErr := c.getLatestIssuer(issuerType)
 		if appErr != nil {
 			return appErr
 		}
@@ -103,7 +103,7 @@ func (c *Server) blindedTokenRedeemHandler(w http.ResponseWriter, r *http.Reques
 			}
 		}
 
-		if err := c.redeemToken(verifiedIssuer.ID, request.TokenPreimage, request.Payload); err != nil {
+		if err := c.redeemToken(verifiedIssuer, request.TokenPreimage, request.Payload); err != nil {
 			if err == errDuplicateRedemption {
 				return &handlers.AppError{
 					Message: err.Error(),
@@ -122,10 +122,40 @@ func (c *Server) blindedTokenRedeemHandler(w http.ResponseWriter, r *http.Reques
 }
 
 func (c *Server) blindedTokenRedemptionHandler(w http.ResponseWriter, r *http.Request) *handlers.AppError {
-	if issuerType := chi.URLParam(r, "type"); issuerType != "" {
+	if issuerID := chi.URLParam(r, "id"); issuerID != "" {
 		tokenID := r.FormValue("tokenId")
 
-		redemption, err := c.fetchRedemption(issuerType, tokenID)
+		issuer, err := c.fetchIssuer(issuerID)
+		if err != nil {
+			return &handlers.AppError{
+				Message: err.Error(),
+				Code:    http.StatusBadRequest,
+			}
+		}
+
+		if issuer.Version == 2 {
+			redemption, err := c.fetchRedemptionV2(issuerID, tokenID)
+			if err != nil {
+				if err == errRedemptionNotFound {
+					return &handlers.AppError{
+						Message: err.Error(),
+						Code:    http.StatusBadRequest,
+					}
+				}
+				return &handlers.AppError{
+					Error:   err,
+					Message: "Could not check token redemption",
+					Code:    http.StatusInternalServerError,
+				}
+			}
+			err = json.NewEncoder(w).Encode(redemption)
+			if err != nil {
+				panic(err)
+			}
+			return nil
+		}
+
+		redemption, err := c.fetchRedemption(issuer.IssuerType, tokenID)
 		if err != nil {
 			if err == errRedemptionNotFound {
 				return &handlers.AppError{
@@ -155,6 +185,6 @@ func (c *Server) tokenRouter() chi.Router {
 	}
 	r.Method(http.MethodPost, "/{type}", middleware.InstrumentHandler("IssueTokens", handlers.AppHandler(c.blindedTokenIssuerHandler)))
 	r.Method(http.MethodPost, "/{type}/redemption/", middleware.InstrumentHandler("RedeemTokens", handlers.AppHandler(c.blindedTokenRedeemHandler)))
-	r.Method(http.MethodGet, "/{type}/redemption/", middleware.InstrumentHandler("CheckToken", handlers.AppHandler(c.blindedTokenRedemptionHandler)))
+	r.Method(http.MethodGet, "/{id}/redemption/", middleware.InstrumentHandler("CheckToken", handlers.AppHandler(c.blindedTokenRedemptionHandler)))
 	return r
 }

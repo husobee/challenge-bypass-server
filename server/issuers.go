@@ -25,7 +25,7 @@ type issuerCreateRequest struct {
 	ExpiresAt string `json:"expires_at"`
 }
 
-func (c *Server) getIssuer(issuerType string) (*Issuer, *handlers.AppError) {
+func (c *Server) getLatestIssuer(issuerType string) (*Issuer, *handlers.AppError) {
 	issuer, err := c.fetchIssuers(issuerType)
 	if err != nil {
 		if err == errIssuerNotFound {
@@ -65,7 +65,7 @@ func (c *Server) issuerHandler(w http.ResponseWriter, r *http.Request) *handlers
 	defer closers.Panic(r.Body)
 
 	if issuerType := chi.URLParam(r, "type"); issuerType != "" {
-		issuer, appErr := c.getIssuer(issuerType)
+		issuer, appErr := c.getLatestIssuer(issuerType)
 		if appErr != nil {
 			return appErr
 		}
