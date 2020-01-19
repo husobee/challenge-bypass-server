@@ -13,6 +13,7 @@ import (
 
 	"github.com/brave-intl/bat-go/middleware"
 	"github.com/go-chi/chi"
+	"github.com/aws/aws-sdk-go/service/dynamodb"
 	chiware "github.com/go-chi/chi/middleware"
 	"github.com/pressly/lg"
 	"github.com/sirupsen/logrus"
@@ -27,9 +28,10 @@ type Server struct {
 	ListenPort   int    `json:"listen_port,omitempty"`
 	MaxTokens    int    `json:"max_tokens,omitempty"`
 	DbConfigPath string `json:"db_config_path"`
-
+	dynamo   *dynamodb.DynamoDB
 	dbConfig DbConfig
 	db       *sql.DB
+
 	caches   map[string]CacheInterface
 }
 
@@ -55,8 +57,8 @@ func LoadConfigFile(filePath string) (Server, error) {
 // InitDbConfig reads os environment and update conf
 func (c *Server) InitDbConfig() error {
 	conf := DbConfig{
-		ExpirationWindow: 7,
-		RenewalWindow: 30,
+		DefaultDaysBeforeExpiry: 7,
+		DefaultIssuerValidDays: 30,
 		MaxConnection: 100,
 	}
 
@@ -71,15 +73,15 @@ func (c *Server) InitDbConfig() error {
 		}
 	}
 
-	if expirationWindow := os.Getenv("EXPIRATION_WINDOW"); expirationWindow != "" {
-		if count, err := strconv.Atoi(expirationWindow); err == nil {
-			conf.ExpirationWindow = count
+	if defaultDaysBeforeExpiry := os.Getenv("DEFAULT_DAYS_BEFORE_EXPIRY"); defaultDaysBeforeExpiry != "" {
+		if count, err := strconv.Atoi(defaultDaysBeforeExpiry); err == nil {
+			conf.DefaultDaysBeforeExpiry = count
 		}
 	}
 
-	if renewalWindow := os.Getenv("RENEWAL_WINDOW"); renewalWindow != "" {
-		if count, err := strconv.Atoi(renewalWindow); err == nil {
-			conf.RenewalWindow = count
+	if defaultIssuerValidDays := os.Getenv("DEFAULT_ISSUER_VALID_DAYS"); defaultIssuerValidDays != "" {
+		if count, err := strconv.Atoi(defaultIssuerValidDays); err == nil {
+			conf.DefaultIssuerValidDays = count
 		}
 	}
 

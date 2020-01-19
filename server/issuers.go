@@ -22,7 +22,7 @@ type issuerResponse struct {
 type issuerCreateRequest struct {
 	Name      string `json:"name"`
 	MaxTokens int    `json:"max_tokens"`
-	ExpiresAt string `json:"expires_at"`
+	ExpiresAt *time.Time `json:"expires_at"`
 }
 
 func (c *Server) getLatestIssuer(issuerType string) (*Issuer, *handlers.AppError) {
@@ -87,26 +87,16 @@ func (c *Server) issuerCreateHandler(w http.ResponseWriter, r *http.Request) *ha
 		return handlers.WrapError("Could not parse the request body", err)
 	}
 
-	var t *time.Time
-	if req.ExpiresAt != "" {
-		layout := "2006-01-02"
-		parsedT, err := time.Parse(layout, req.ExpiresAt); 
-		if err != nil {
-			log.Errorf("%s", err)
-			return handlers.WrapError("Could not parse the request expires at", err)
-		}
-
-		if parsedT.Before(time.Now()) {
+	if req.ExpiresAt != nil {
+		if req.ExpiresAt.Before(time.Now()) {
 			return &handlers.AppError{
-				Error:   err,
 				Message: "Expiration time has past",
 				Code:    400,
 			}
 		}
-		t = &parsedT;
 	}
 
-	if err := c.createIssuer(req.Name, req.MaxTokens, t); err != nil {
+	if err := c.createIssuer(req.Name, req.MaxTokens, req.ExpiresAt); err != nil {
 		log.Errorf("%s", err)
 		return &handlers.AppError{
 			Error:   err,

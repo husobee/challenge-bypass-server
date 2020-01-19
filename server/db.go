@@ -22,11 +22,11 @@ type CachingConfig struct {
 
 // DbConfig defines app configurations
 type DbConfig struct {
-	ConnectionURI    string        `json:"connectionURI"`
-	CachingConfig    CachingConfig `json:"caching"`
-	MaxConnection    int           `json:"maxConnection"`
-	ExpirationWindow int           `json:"expirationWindow"`
-	RenewalWindow    int           `json:"renewalWindow"`
+	ConnectionURI           string        `json:"connectionURI"`
+	CachingConfig           CachingConfig `json:"caching"`
+	MaxConnection           int           `json:"maxConnection"`
+	DefaultDaysBeforeExpiry int           `json:"DefaultDaysBeforeExpiry"`
+	DefaultIssuerValidDays  int           `json:"DefaultIssuerValidDays"`
 }
 
 // Issuer of tokens
@@ -50,10 +50,11 @@ type Redemption struct {
 
 // RedemptionV2 is a token Redeemed
 type RedemptionV2 struct {
-	IssuerID string    `json:"issuerID"`
-	ID         string    `json:"id"`
-	Timestamp  time.Time `json:"timestamp"`
-	Payload    string    `json:"payload"`
+	IssuerID  string    `json:"issuerId"`
+	ID        string    `json:"id"`
+	Timestamp time.Time `json:"timestamp"`
+	Payload   string    `json:"payload"`
+	TTL       string    `json:"TTL"`
 }
 
 // CacheInterface cach functions
@@ -117,8 +118,7 @@ func (c *Server) fetchIssuer(issuerID string) (*Issuer, error) {
 	rows, err := c.db.Query(
 		`SELECT id, issuer_type, signing_key, max_tokens, version 
 		FROM issuers 
-		WHERE id=$1 AND retired_at IS NULL
-		ORDER BY expires_at DESC NULLS LAST, created_at DESC`, issuerID)
+		WHERE id=$1 AND retired_at IS NULL`, issuerID)
 	if err != nil {
 		return nil, err
 	}
@@ -204,12 +204,13 @@ func (c *Server) fetchIssuers(issuerType string) (*[]Issuer, error) {
 	return &issuers, nil
 }
 
-func (c *Server) rotateIssuers() error {
+// RotateIssuers is the function that rotates
+func RotateIssuers(c Server) (bool, error) {
 	cfg := c.dbConfig
 
 	tx, err := c.db.Begin()
 	if err != nil {
-		return err
+		return true, err
 	}
 	defer tx.Rollback()
 
@@ -219,10 +220,10 @@ func (c *Server) rotateIssuers() error {
 			AND rotated_at IS NULL
 			AND expires_at < NOW() + $1 * INTERVAL '1 day'
 			AND expires_at > NOW()
-		FOR UPDATE SKIP LOCKED`, cfg.ExpirationWindow,
+		FOR UPDATE SKIP LOCKED`, cfg.DefaultDaysBeforeExpiry,
 	)
 	if err != nil {
-		return err
+		return true, err
 	}
 	defer rows.Close()
 
@@ -230,12 +231,12 @@ func (c *Server) rotateIssuers() error {
 	for rows.Next() {
 		var issuer = &Issuer{}
 		if err := rows.Scan(&issuer.ID, &issuer.IssuerType, &issuer.ExpiresAt, &issuer.MaxTokens); err != nil {
-			return err
+			return true, err
 		}
 		issuers = append(issuers, *issuer)
 	}
 	if err := rows.Err(); err != nil {
-		return err
+		return true, err
 	}
 	rows.Close()
 	for _, issuer := range issuers {
@@ -245,12 +246,12 @@ func (c *Server) rotateIssuers() error {
 
 		signingKey, err := crypto.RandomSigningKey()
 		if err != nil {
-			return err
+			return true, err
 		}
 
 		signingKeyTxt, err := signingKey.MarshalText()
 		if err != nil {
-			return err
+			return true, err
 		}
 
 		if _, err = tx.Exec(
@@ -258,23 +259,23 @@ func (c *Server) rotateIssuers() error {
 			issuer.IssuerType,
 			signingKeyTxt,
 			issuer.MaxTokens,
-			issuer.ExpiresAt.AddDate(0, 0, cfg.RenewalWindow),
+			issuer.ExpiresAt.AddDate(0, 0, cfg.DefaultIssuerValidDays),
 		); err != nil {
-			return err
+			return true, err
 		}
 		if _, err = tx.Exec(
 			`UPDATE issuers SET rotated_at = now() where id = $1`,
 			issuer.ID,
 		); err != nil {
-			return err
+			return true, err
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		return err
+		return true, err
 	}
 
-	return nil
+	return true, nil
 }
 
 func (c *Server) retireIssuers() error {

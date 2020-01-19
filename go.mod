@@ -3,6 +3,7 @@ module github.com/brave-intl/challenge-bypass-server
 require (
 	github.com/Microsoft/go-winio v0.4.14 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20180720115003-f9ffefc3facf // indirect
+	github.com/aws/aws-sdk-go v1.17.7
 	github.com/brave-intl/bat-go v0.1.1
 	github.com/brave-intl/challenge-bypass-ristretto-ffi v1.0.0-20190128173058-f0a50b88caf
 	github.com/certifi/gocertifi v0.0.0-20180905225744-ee1a9a0726d2 // indirect
