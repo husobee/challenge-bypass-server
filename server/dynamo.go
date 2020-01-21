@@ -17,12 +17,12 @@ func (c *Server) initDynamo() {
 	c.dynamo = svc
 }
 
-func (c *Server) redeemTokenV2(issuerID string, preimageTxt string, payload string) error {
+func (c *Server) redeemTokenV2(issuerID string, preimageTxt []byte, payload string) error {
 	redemption := RedemptionV2{
 		IssuerID: issuerID,
-		ID: preimageTxt,
-		Payload: payload,
-		TTL: "",
+		ID:       preimageTxt,
+		Payload:  payload,
+		TTL:      "",
 	}
 
 	av, err := dynamodbattribute.MarshalMap(redemption)
@@ -31,9 +31,9 @@ func (c *Server) redeemTokenV2(issuerID string, preimageTxt string, payload stri
 	}
 
 	input := &dynamodb.PutItemInput{
-		Item:      av,
+		Item:                av,
 		ConditionExpression: aws.String("attribute_not_exists(issuer) AND attribute_not_exists(nonce)"),
-		TableName: aws.String("redemption"),
+		TableName:           aws.String("redemption"),
 	}
 
 	_, err = c.dynamo.PutItem(input)

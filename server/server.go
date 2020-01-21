@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -11,10 +10,11 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/brave-intl/bat-go/middleware"
 	"github.com/go-chi/chi"
-	"github.com/aws/aws-sdk-go/service/dynamodb"
 	chiware "github.com/go-chi/chi/middleware"
+	"github.com/jmoiron/sqlx"
 	"github.com/pressly/lg"
 	"github.com/sirupsen/logrus"
 )
@@ -28,11 +28,11 @@ type Server struct {
 	ListenPort   int    `json:"listen_port,omitempty"`
 	MaxTokens    int    `json:"max_tokens,omitempty"`
 	DbConfigPath string `json:"db_config_path"`
-	dynamo   *dynamodb.DynamoDB
-	dbConfig DbConfig
-	db       *sql.DB
+	dynamo       *dynamodb.DynamoDB
+	dbConfig     DbConfig
+	db           *sqlx.DB
 
-	caches   map[string]CacheInterface
+	caches map[string]CacheInterface
 }
 
 // DefaultServer on port
@@ -58,8 +58,8 @@ func LoadConfigFile(filePath string) (Server, error) {
 func (c *Server) InitDbConfig() error {
 	conf := DbConfig{
 		DefaultDaysBeforeExpiry: 7,
-		DefaultIssuerValidDays: 30,
-		MaxConnection: 100,
+		DefaultIssuerValidDays:  30,
+		MaxConnection:           100,
 	}
 
 	// Heroku style

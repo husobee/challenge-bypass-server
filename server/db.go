@@ -1,7 +1,6 @@
 package server
 
 import (
-	"database/sql"
 	"errors"
 	"fmt"
 	"time"
@@ -10,6 +9,7 @@ import (
 	migrate "github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file" // Why?
+	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 	cache "github.com/patrickmn/go-cache"
 )
@@ -31,27 +31,28 @@ type DbConfig struct {
 
 // Issuer of tokens
 type Issuer struct {
-	ID         string
-	IssuerType string
 	SigningKey *crypto.SigningKey
-	MaxTokens  int
-	ExpiresAt  time.Time
-	RotatedAt  time.Time
-	Version    int
+	ID         string    `db:"id"`
+	IssuerType string    `db:"issuer_type"`
+	Key        []byte    `db:"signing_key"`
+	MaxTokens  int       `db:"max_tokens`
+	ExpiresAt  time.Time `db:"expires_at"`
+	RotatedAt  time.Time `db:"rotated_at"`
+	Version    int       `db:"version"`
 }
 
 // Redemption is a token Redeemed
 type Redemption struct {
-	IssuerType string    `json:"issuerType"`
-	ID         string    `json:"id"`
-	Timestamp  time.Time `json:"timestamp"`
-	Payload    string    `json:"payload"`
+	IssuerType string    `json:"issuerType" db:"issuer_type"`
+	ID         string    `json:"id" db:"id"`
+	Timestamp  time.Time `json:"timestamp" db:"ts"`
+	Payload    string    `json:"payload" db:"payload"`
 }
 
 // RedemptionV2 is a token Redeemed
 type RedemptionV2 struct {
 	IssuerID  string    `json:"issuerId"`
-	ID        string    `json:"id"`
+	ID        []byte    `json:"id"`
 	Timestamp time.Time `json:"timestamp"`
 	Payload   string    `json:"payload"`
 	TTL       string    `json:"TTL"`
@@ -78,14 +79,14 @@ func (c *Server) LoadDbConfig(config DbConfig) {
 func (c *Server) initDb() {
 	cfg := c.dbConfig
 
-	db, err := sql.Open("postgres", cfg.ConnectionURI)
+	db, err := sqlx.Open("postgres", cfg.ConnectionURI)
 	if err != nil {
 		panic(err)
 	}
 	db.SetMaxOpenConns(cfg.MaxConnection)
 	c.db = db
 
-	driver, err := postgres.WithInstance(db, &postgres.Config{})
+	driver, err := postgres.WithInstance(c.db.DB, &postgres.Config{})
 	if err != nil {
 		panic(err)
 	}
@@ -115,31 +116,19 @@ func (c *Server) fetchIssuer(issuerID string) (*Issuer, error) {
 		}
 	}
 
-	rows, err := c.db.Query(
-		`SELECT id, issuer_type, signing_key, max_tokens, version 
-		FROM issuers 
-		WHERE id=$1 AND retired_at IS NULL`, issuerID)
+	issuer := Issuer{}
+	err := c.db.Get(issuer, `
+	    SELECT * FROM issuers
+	    WHERE id=$1 and retired_at IS NULL
+	`, issuerID)
+
 	if err != nil {
-		return nil, err
+		return nil, errIssuerNotFound
 	}
 
-	defer rows.Close()
-
-	var issuer = &Issuer{}
-
-	for rows.Next() {
-		var signingKey []byte
-		if err := rows.Scan(&issuer.ID, &issuer.IssuerType, &signingKey, &issuer.MaxTokens, &issuer.Version); err != nil {
-			return nil, err
-		}
-
-		issuer.SigningKey = &crypto.SigningKey{}
-		err := issuer.SigningKey.UnmarshalText(signingKey)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if err := rows.Err(); err != nil {
+	issuer.SigningKey = &crypto.SigningKey{}
+	err = issuer.SigningKey.UnmarshalText(issuer.Key)
+	if err != nil {
 		return nil, err
 	}
 
@@ -147,11 +136,7 @@ func (c *Server) fetchIssuer(issuerID string) (*Issuer, error) {
 		c.caches["issuer"].SetDefault(issuerID, issuer)
 	}
 
-	if issuer == nil {
-		return nil, errIssuerNotFound
-	}
-
-	return issuer, nil
+	return &issuer, nil
 }
 
 func (c *Server) fetchIssuers(issuerType string) (*[]Issuer, error) {
@@ -161,8 +146,10 @@ func (c *Server) fetchIssuers(issuerType string) (*[]Issuer, error) {
 		}
 	}
 
-	rows, err := c.db.Query(
-		`SELECT id, issuer_type, signing_key, max_tokens, version 
+	issuers := []Issuer{}
+	err := c.db.Select(
+		issuers,
+		`SELECT *
 		FROM issuers 
 		WHERE issuer_type=$1 AND retired_at IS NULL
 		ORDER BY expires_at DESC NULLS LAST, created_at DESC`, issuerType)
@@ -170,35 +157,20 @@ func (c *Server) fetchIssuers(issuerType string) (*[]Issuer, error) {
 		return nil, err
 	}
 
-	defer rows.Close()
+	if len(issuers) < 1 {
+		return nil, errIssuerNotFound
+	}
 
-	var issuers = []Issuer{}
-
-	for rows.Next() {
-		var signingKey []byte
-		var issuer = &Issuer{}
-		if err := rows.Scan(&issuer.ID, &issuer.IssuerType, &signingKey, &issuer.MaxTokens, &issuer.Version); err != nil {
-			return nil, err
-		}
-
+	for _, issuer := range issuers {
 		issuer.SigningKey = &crypto.SigningKey{}
-		err := issuer.SigningKey.UnmarshalText(signingKey)
+		err := issuer.SigningKey.UnmarshalText(issuer.Key)
 		if err != nil {
 			return nil, err
 		}
-		issuers = append(issuers, *issuer)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
 	}
 
 	if c.caches != nil {
 		c.caches["issuers"].SetDefault(issuerType, issuers)
-	}
-
-	if len(issuers) < 1 {
-		return nil, errIssuerNotFound
 	}
 
 	return &issuers, nil
@@ -208,13 +180,13 @@ func (c *Server) fetchIssuers(issuerType string) (*[]Issuer, error) {
 func RotateIssuers(c Server) (bool, error) {
 	cfg := c.dbConfig
 
-	tx, err := c.db.Begin()
-	if err != nil {
-		return true, err
-	}
+	tx := c.db.MustBegin()
+
 	defer tx.Rollback()
 
-	rows, err := tx.Query(
+	issuers := []Issuer{}
+	err := tx.Select(
+		issuers,
 		`SELECT id, issuer_type, expires_at, max_tokens FROM issuers 
 			WHERE expires_at IS NOT NULL
 			AND rotated_at IS NULL
@@ -225,20 +197,7 @@ func RotateIssuers(c Server) (bool, error) {
 	if err != nil {
 		return true, err
 	}
-	defer rows.Close()
 
-	var issuers = []Issuer{}
-	for rows.Next() {
-		var issuer = &Issuer{}
-		if err := rows.Scan(&issuer.ID, &issuer.IssuerType, &issuer.ExpiresAt, &issuer.MaxTokens); err != nil {
-			return true, err
-		}
-		issuers = append(issuers, *issuer)
-	}
-	if err := rows.Err(); err != nil {
-		return true, err
-	}
-	rows.Close()
 	for _, issuer := range issuers {
 		if issuer.MaxTokens == 0 {
 			issuer.MaxTokens = 40
@@ -276,59 +235,6 @@ func RotateIssuers(c Server) (bool, error) {
 	}
 
 	return true, nil
-}
-
-func (c *Server) retireIssuers() error {
-	tx, err := c.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	rows, err := tx.Query(`
-		SELECT id FROM issuers
-			WHERE expires_at IS NOT NULL
-			AND expires_at <= now()
-			AND rotated_at IS NOT NULL
-			AND retired_at IS NULL
-		FOR UPDATE SKIP LOCKED
-	`)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-
-	var issuers = []Issuer{}
-	for rows.Next() {
-		var issuer = &Issuer{}
-		if err := rows.Scan(&issuer.ID); err != nil {
-			return err
-		}
-		issuers = append(issuers, *issuer)
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	rows.Close()
-
-	for _, issuer := range issuers {
-		if _, err = tx.Exec(`
-			CREATE TABLE "redemptions_` + issuer.ID + `" PARTITION OF redemptions
-			FOR VALUES IN ('` + issuer.ID + `')
-		`); err != nil {
-			return err
-		}
-		if _, err = tx.Exec(`
-			UPDATE issuers SET retired_at = now() WHERE id = $1
-		`, issuer.ID); err != nil {
-			return err
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func (c *Server) createIssuer(issuerType string, maxTokens int, expiresAt *time.Time) error {
@@ -386,8 +292,7 @@ func (c *Server) redeemToken(issuer *Issuer, preimage *crypto.TokenPreimage, pay
 		return nil
 	}
 
-	rows, err := c.db.Query(
-		`INSERT INTO redemptions(id, issuer_id, ts, payload) VALUES ($1, $2, NOW(), $3)`, preimageTxt, issuer.ID, payload)
+	err = c.redeemTokenV2(issuer.ID, preimageTxt, payload)
 
 	if err != nil {
 		if err, ok := err.(*pq.Error); ok && err.Code == "23505" { // unique constraint violation
@@ -396,7 +301,6 @@ func (c *Server) redeemToken(issuer *Issuer, preimage *crypto.TokenPreimage, pay
 		return err
 	}
 
-	defer rows.Close()
 	return nil
 }
 
