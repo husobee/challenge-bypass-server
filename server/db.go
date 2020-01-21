@@ -216,8 +216,6 @@ func (c *Server) rotateIssuers() (error) {
 		return err
 	}
 
-	fmt.Println(fetchedIssuers)
-
 	for _, fetchedIssuer := range fetchedIssuers {
 		issuer := Issuer{
 			ID:         fetchedIssuer.ID,
