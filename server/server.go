@@ -105,6 +105,7 @@ func SetupLogger(ctx context.Context) (context.Context, *logrus.Logger) {
 
 func (c *Server) setupRouter(ctx context.Context, logger *logrus.Logger) (context.Context, *chi.Mux) {
 	c.initDb()
+	c.initDynamo()
 
 	//govalidator.SetFieldsRequiredByDefault(true)
 

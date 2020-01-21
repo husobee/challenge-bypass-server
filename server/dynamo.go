@@ -12,7 +12,9 @@ func (c *Server) initDynamo() {
 		SharedConfigState: session.SharedConfigEnable,
 	}))
 
-	svc := dynamodb.New(sess)
+	svc := dynamodb.New(sess, &aws.Config{
+		Region: aws.String("us-west-2"),
+	})
 
 	c.dynamo = svc
 }
@@ -20,7 +22,7 @@ func (c *Server) initDynamo() {
 func (c *Server) redeemTokenV2(issuerID string, preimageTxt []byte, payload string) error {
 	redemption := RedemptionV2{
 		IssuerID: issuerID,
-		ID:       preimageTxt,
+		ID:       string(preimageTxt),
 		Payload:  payload,
 		TTL:      "",
 	}

@@ -29,16 +29,27 @@ type DbConfig struct {
 	DefaultIssuerValidDays  int           `json:"DefaultIssuerValidDays"`
 }
 
+type issuer struct {
+	ID         string      `db:"id"`
+	IssuerType string      `db:"issuer_type"`
+	SigningKey []byte      `db:"signing_key"`
+	MaxTokens  int         `db:"max_tokens"`
+	CreatedAt  pq.NullTime `db:"created_at"`
+	ExpiresAt  pq.NullTime `db:"expires_at"`
+	RotatedAt  pq.NullTime `db:"rotated_at"`
+	Version    int         `db:"version"`
+}
+
 // Issuer of tokens
 type Issuer struct {
 	SigningKey *crypto.SigningKey
-	ID         string    `db:"id"`
-	IssuerType string    `db:"issuer_type"`
-	Key        []byte    `db:"signing_key"`
-	MaxTokens  int       `db:"max_tokens"`
-	ExpiresAt  time.Time `db:"expires_at"`
-	RotatedAt  time.Time `db:"rotated_at"`
-	Version    int       `db:"version"`
+	ID         string    `json:"id"`
+	IssuerType string    `json:"issuer_type"`
+	MaxTokens  int       `json:"max_tokens"`
+	CreatedAt  time.Time `json:"created_at"`
+	ExpiresAt  time.Time `json:"expires_at"`
+	RotatedAt  time.Time `json:"rotated_at"`
+	Version    int       `json:"version"`
 }
 
 // Redemption is a token Redeemed
@@ -52,7 +63,7 @@ type Redemption struct {
 // RedemptionV2 is a token Redeemed
 type RedemptionV2 struct {
 	IssuerID  string    `json:"issuerId"`
-	ID        []byte    `json:"id"`
+	ID        string    `json:"id"`
 	Timestamp time.Time `json:"timestamp"`
 	Payload   string    `json:"payload"`
 	TTL       string    `json:"TTL"`
@@ -96,7 +107,7 @@ func (c *Server) initDb() {
 	if err != nil {
 		panic(err)
 	}
-	err = m.Migrate(3)
+	err = m.Migrate(4)
 	if err != migrate.ErrNoChange && err != nil {
 		panic(err)
 	}
@@ -116,18 +127,23 @@ func (c *Server) fetchIssuer(issuerID string) (*Issuer, error) {
 		}
 	}
 
-	issuer := Issuer{}
-	err := c.db.Get(issuer, `
+	fetchedIssuer := issuer{}
+	err := c.db.Get(fetchedIssuer, `
 	    SELECT * FROM issuers
-	    WHERE id=$1 and retired_at IS NULL
+	    WHERE id=$1
 	`, issuerID)
 
 	if err != nil {
 		return nil, errIssuerNotFound
 	}
 
+	issuer, err := convertDBIssuer(fetchedIssuer)
+	if err != nil {
+		return nil, err
+	}
+
 	issuer.SigningKey = &crypto.SigningKey{}
-	err = issuer.SigningKey.UnmarshalText(issuer.Key)
+	err = issuer.SigningKey.UnmarshalText(fetchedIssuer.SigningKey)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +152,7 @@ func (c *Server) fetchIssuer(issuerID string) (*Issuer, error) {
 		c.caches["issuer"].SetDefault(issuerID, issuer)
 	}
 
-	return &issuer, nil
+	return issuer, nil
 }
 
 func (c *Server) fetchIssuers(issuerType string) (*[]Issuer, error) {
@@ -146,27 +162,31 @@ func (c *Server) fetchIssuers(issuerType string) (*[]Issuer, error) {
 		}
 	}
 
-	issuers := []Issuer{}
+	fmt.Println("test")
+
+	fetchedIssuers := []issuer{}
 	err := c.db.Select(
-		issuers,
+		&fetchedIssuers,
 		`SELECT *
 		FROM issuers 
-		WHERE issuer_type=$1 AND retired_at IS NULL
+		WHERE issuer_type=$1
 		ORDER BY expires_at DESC NULLS LAST, created_at DESC`, issuerType)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(issuers) < 1 {
+	if len(fetchedIssuers) < 1 {
 		return nil, errIssuerNotFound
 	}
 
-	for _, issuer := range issuers {
-		issuer.SigningKey = &crypto.SigningKey{}
-		err := issuer.SigningKey.UnmarshalText(issuer.Key)
+	issuers := []Issuer{}
+	for _, fetchedIssuer := range fetchedIssuers {
+		issuer, err := convertDBIssuer(fetchedIssuer)
 		if err != nil {
 			return nil, err
 		}
+
+		issuers = append(issuers, *issuer)
 	}
 
 	if c.caches != nil {
@@ -184,9 +204,9 @@ func RotateIssuers(c Server) (bool, error) {
 
 	defer tx.Rollback()
 
-	issuers := []Issuer{}
+	fetchedIssuers := []issuer{}
 	err := tx.Select(
-		issuers,
+		&fetchedIssuers,
 		`SELECT id, issuer_type, expires_at, max_tokens FROM issuers 
 			WHERE expires_at IS NOT NULL
 			AND rotated_at IS NULL
@@ -198,7 +218,17 @@ func RotateIssuers(c Server) (bool, error) {
 		return true, err
 	}
 
-	for _, issuer := range issuers {
+	for _, fetchedIssuer := range fetchedIssuers {
+		issuer := Issuer{
+			ID:         fetchedIssuer.ID,
+			IssuerType: fetchedIssuer.IssuerType,
+			MaxTokens:  fetchedIssuer.MaxTokens,
+			ExpiresAt:  fetchedIssuer.ExpiresAt.Time,
+			RotatedAt:  fetchedIssuer.RotatedAt.Time,
+			CreatedAt:  fetchedIssuer.CreatedAt.Time,
+			Version:    fetchedIssuer.Version,
+		}
+
 		if issuer.MaxTokens == 0 {
 			issuer.MaxTokens = 40
 		}
@@ -224,7 +254,7 @@ func RotateIssuers(c Server) (bool, error) {
 		}
 		if _, err = tx.Exec(
 			`UPDATE issuers SET rotated_at = now() where id = $1`,
-			issuer.ID,
+			fetchedIssuer.ID,
 		); err != nil {
 			return true, err
 		}
@@ -374,4 +404,30 @@ func (c *Server) fetchRedemptionV2(issuerID, ID string) (*RedemptionV2, error) {
 	}
 
 	return nil, errRedemptionNotFound
+}
+
+func convertDBIssuer(issuer issuer) (*Issuer, error) {
+	Issuer := Issuer{
+		ID:         issuer.ID,
+		IssuerType: issuer.IssuerType,
+		MaxTokens:  issuer.MaxTokens,
+		Version:    issuer.Version,
+	}
+	if issuer.ExpiresAt.Valid {
+		Issuer.ExpiresAt = issuer.ExpiresAt.Time
+	}
+	if issuer.CreatedAt.Valid {
+		Issuer.CreatedAt = issuer.CreatedAt.Time
+	}
+	if issuer.RotatedAt.Valid {
+		Issuer.RotatedAt = issuer.RotatedAt.Time
+	}
+
+	Issuer.SigningKey = &crypto.SigningKey{}
+	err := Issuer.SigningKey.UnmarshalText(issuer.SigningKey)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Issuer, nil
 }
