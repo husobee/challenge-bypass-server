@@ -6,6 +6,4 @@ ALTER TABLE issuers ADD COLUMN expires_at timestamp;
 ALTER TABLE issuers ADD COLUMN rotated_at timestamp;
 ALTER TABLE issuers DROP CONSTRAINT issuers_pkey;
 ALTER TABLE issuers ADD PRIMARY KEY (id);
-ALTER TABLE issuers ADD COLUMN version integer;
-
-UPDATE issuers SET version = 1;
+ALTER TABLE issuers ADD COLUMN version integer DEFAULT 1;

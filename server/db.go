@@ -35,7 +35,7 @@ type Issuer struct {
 	ID         string    `db:"id"`
 	IssuerType string    `db:"issuer_type"`
 	Key        []byte    `db:"signing_key"`
-	MaxTokens  int       `db:"max_tokens`
+	MaxTokens  int       `db:"max_tokens"`
 	ExpiresAt  time.Time `db:"expires_at"`
 	RotatedAt  time.Time `db:"rotated_at"`
 	Version    int       `db:"version"`
