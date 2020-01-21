@@ -66,7 +66,7 @@ type RedemptionV2 struct {
 	ID        string    `json:"id"`
 	Timestamp time.Time `json:"timestamp"`
 	Payload   string    `json:"payload"`
-	TTL       string    `json:"TTL"`
+	TTL       int64    `json:"TTL"`
 }
 
 // CacheInterface cach functions
@@ -322,7 +322,7 @@ func (c *Server) redeemToken(issuer *Issuer, preimage *crypto.TokenPreimage, pay
 		return nil
 	}
 
-	err = c.redeemTokenV2(issuer.ID, preimageTxt, payload)
+	err = c.redeemTokenV2(issuer, preimageTxt, payload)
 
 	if err != nil {
 		if err, ok := err.(*pq.Error); ok && err.Code == "23505" { // unique constraint violation

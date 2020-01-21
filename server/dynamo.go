@@ -19,12 +19,12 @@ func (c *Server) initDynamo() {
 	c.dynamo = svc
 }
 
-func (c *Server) redeemTokenV2(issuerID string, preimageTxt []byte, payload string) error {
+func (c *Server) redeemTokenV2(issuer *Issuer, preimageTxt []byte, payload string) error {
 	redemption := RedemptionV2{
-		IssuerID: issuerID,
+		IssuerID: issuer.ID,
 		ID:       string(preimageTxt),
 		Payload:  payload,
-		TTL:      "",
+		TTL:      issuer.ExpiresAt.Unix(),
 	}
 
 	av, err := dynamodbattribute.MarshalMap(redemption)
