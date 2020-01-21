@@ -162,8 +162,6 @@ func (c *Server) fetchIssuers(issuerType string) (*[]Issuer, error) {
 		}
 	}
 
-	fmt.Println("test")
-
 	fetchedIssuers := []issuer{}
 	err := c.db.Select(
 		&fetchedIssuers,
@@ -197,7 +195,7 @@ func (c *Server) fetchIssuers(issuerType string) (*[]Issuer, error) {
 }
 
 // RotateIssuers is the function that rotates
-func RotateIssuers(c Server) (bool, error) {
+func (c *Server) rotateIssuers() (error) {
 	cfg := c.dbConfig
 
 	tx := c.db.MustBegin()
@@ -207,7 +205,7 @@ func RotateIssuers(c Server) (bool, error) {
 	fetchedIssuers := []issuer{}
 	err := tx.Select(
 		&fetchedIssuers,
-		`SELECT id, issuer_type, expires_at, max_tokens FROM issuers 
+		`SELECT * FROM issuers 
 			WHERE expires_at IS NOT NULL
 			AND rotated_at IS NULL
 			AND expires_at < NOW() + $1 * INTERVAL '1 day'
@@ -215,8 +213,10 @@ func RotateIssuers(c Server) (bool, error) {
 		FOR UPDATE SKIP LOCKED`, cfg.DefaultDaysBeforeExpiry,
 	)
 	if err != nil {
-		return true, err
+		return err
 	}
+
+	fmt.Println(fetchedIssuers)
 
 	for _, fetchedIssuer := range fetchedIssuers {
 		issuer := Issuer{
@@ -235,12 +235,12 @@ func RotateIssuers(c Server) (bool, error) {
 
 		signingKey, err := crypto.RandomSigningKey()
 		if err != nil {
-			return true, err
+			return err
 		}
 
 		signingKeyTxt, err := signingKey.MarshalText()
 		if err != nil {
-			return true, err
+			return err
 		}
 
 		if _, err = tx.Exec(
@@ -250,21 +250,21 @@ func RotateIssuers(c Server) (bool, error) {
 			issuer.MaxTokens,
 			issuer.ExpiresAt.AddDate(0, 0, cfg.DefaultIssuerValidDays),
 		); err != nil {
-			return true, err
+			return err
 		}
 		if _, err = tx.Exec(
 			`UPDATE issuers SET rotated_at = now() where id = $1`,
 			fetchedIssuer.ID,
 		); err != nil {
-			return true, err
+			return err
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		return true, err
+		return err
 	}
 
-	return true, nil
+	return nil
 }
 
 func (c *Server) createIssuer(issuerType string, maxTokens int, expiresAt *time.Time) error {
