@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"os"
 
 	"github.com/brave-intl/bat-go/middleware"
@@ -124,6 +125,20 @@ func (c *Server) blindedTokenRedeemHandler(w http.ResponseWriter, r *http.Reques
 func (c *Server) blindedTokenRedemptionHandler(w http.ResponseWriter, r *http.Request) *handlers.AppError {
 	if issuerID := chi.URLParam(r, "id"); issuerID != "" {
 		tokenID := chi.URLParam(r, "tokenId")
+		if tokenID == "" {
+			return &handlers.AppError{
+				Message: errRedemptionNotFound.Error(),
+				Code:    http.StatusBadRequest,
+			}
+		}
+
+		tokenID, err := url.PathUnescape(tokenID)
+		if err != nil {
+			return &handlers.AppError{
+				Message: err.Error(),
+				Code:    http.StatusBadRequest,
+			}
+		}
 
 		issuer, err := c.fetchIssuer(issuerID)
 		if err != nil {

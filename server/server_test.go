@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"net/http/httptest"
 	"os"
 	"testing"
@@ -195,7 +196,7 @@ func TestIssueRedeem(t *testing.T) {
 		t.Fatal("Should Fail on double redemption")
 	}
 
-	checkURL := fmt.Sprintf("%s/v1/blindedToken/%s/redemption/%s", server.URL, issuerResp.ID, preimageText)
+	checkURL := fmt.Sprintf("%s/v1/blindedToken/%s/redemption/%s", server.URL, issuerResp.ID, url.PathEscape(string(preimageText)))
 	_, err = request("GET", checkURL, nil)
 	if err != nil {
 		t.Fatal(err)
