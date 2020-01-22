@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	crypto "github.com/brave-intl/challenge-bypass-ristretto-ffi"
 	migrate "github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
@@ -66,7 +67,7 @@ type RedemptionV2 struct {
 	ID        string    `json:"id"`
 	Timestamp time.Time `json:"timestamp"`
 	Payload   string    `json:"payload"`
-	TTL       int64    `json:"TTL"`
+	TTL       int64     `json:"TTL"`
 }
 
 // CacheInterface cach functions
@@ -128,7 +129,7 @@ func (c *Server) fetchIssuer(issuerID string) (*Issuer, error) {
 	}
 
 	fetchedIssuer := issuer{}
-	err := c.db.Get(fetchedIssuer, `
+	err := c.db.Get(&fetchedIssuer, `
 	    SELECT * FROM issuers
 	    WHERE id=$1
 	`, issuerID)
@@ -195,7 +196,7 @@ func (c *Server) fetchIssuers(issuerType string) (*[]Issuer, error) {
 }
 
 // RotateIssuers is the function that rotates
-func (c *Server) rotateIssuers() (error) {
+func (c *Server) rotateIssuers() error {
 	cfg := c.dbConfig
 
 	tx := c.db.MustBegin()
@@ -323,12 +324,11 @@ func (c *Server) redeemToken(issuer *Issuer, preimage *crypto.TokenPreimage, pay
 	err = c.redeemTokenV2(issuer, preimageTxt, payload)
 
 	if err != nil {
-		if err, ok := err.(*pq.Error); ok && err.Code == "23505" { // unique constraint violation
+		if err, ok := err.(awserr.Error); ok && err.Code() == "ConditionalCheckFailedException" { // unique constraint violation
 			return errDuplicateRedemption
 		}
 		return err
 	}
-
 	return nil
 }
 

@@ -78,6 +78,8 @@ func request(method string, URL string, payload io.Reader) (*http.Response, erro
 		return nil, err
 	}
 
+	fmt.Println(resp)
+
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("Received non-200 response: %d", resp.StatusCode)
 	}
@@ -117,6 +119,10 @@ func TestIssueRedeem(t *testing.T) {
 
 	if issuerResp.PublicKey == nil {
 		t.Fatal("Public key was missing")
+	}
+
+	if issuerResp.ID == "" {
+		t.Fatal("ID was missing")
 	}
 
 	publicKey := issuerResp.PublicKey
@@ -182,6 +188,17 @@ func TestIssueRedeem(t *testing.T) {
 	redeemURL := fmt.Sprintf("%s/v1/blindedToken/%s/redemption/", server.URL, issuerType)
 
 	_, err = request("POST", redeemURL, bytes.NewBuffer([]byte(payload)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = request("POST", redeemURL, bytes.NewBuffer([]byte(payload)))
+	if err == nil {
+		t.Fatal("Should Fail on double redemption")
+	}
+
+	checkURL := fmt.Sprintf("%s/v1/blindedToken/%s/redemption/", server.URL, issuerResp.ID)
+	_, err = request("GET", checkURL, bytes.NewBuffer([]byte(payload)))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -15,13 +15,14 @@ import (
 )
 
 type issuerResponse struct {
+	ID        string            `json:"id"`
 	Name      string            `json:"name"`
 	PublicKey *crypto.PublicKey `json:"public_key"`
 }
 
 type issuerCreateRequest struct {
-	Name      string `json:"name"`
-	MaxTokens int    `json:"max_tokens"`
+	Name      string     `json:"name"`
+	MaxTokens int        `json:"max_tokens"`
 	ExpiresAt *time.Time `json:"expires_at"`
 }
 
@@ -69,7 +70,7 @@ func (c *Server) issuerHandler(w http.ResponseWriter, r *http.Request) *handlers
 		if appErr != nil {
 			return appErr
 		}
-		err := json.NewEncoder(w).Encode(issuerResponse{issuer.IssuerType, issuer.SigningKey.PublicKey()})
+		err := json.NewEncoder(w).Encode(issuerResponse{issuer.ID, issuer.IssuerType, issuer.SigningKey.PublicKey()})
 		if err != nil {
 			panic(err)
 		}

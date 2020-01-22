@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 
@@ -126,6 +127,7 @@ func (c *Server) blindedTokenRedemptionHandler(w http.ResponseWriter, r *http.Re
 		tokenID := r.FormValue("tokenId")
 
 		issuer, err := c.fetchIssuer(issuerID)
+		fmt.Println(err)
 		if err != nil {
 			return &handlers.AppError{
 				Message: err.Error(),
