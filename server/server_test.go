@@ -78,8 +78,6 @@ func request(method string, URL string, payload io.Reader) (*http.Response, erro
 		return nil, err
 	}
 
-	fmt.Println(resp)
-
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("Received non-200 response: %d", resp.StatusCode)
 	}
@@ -197,8 +195,8 @@ func TestIssueRedeem(t *testing.T) {
 		t.Fatal("Should Fail on double redemption")
 	}
 
-	checkURL := fmt.Sprintf("%s/v1/blindedToken/%s/redemption/", server.URL, issuerResp.ID)
-	_, err = request("GET", checkURL, bytes.NewBuffer([]byte(payload)))
+	checkURL := fmt.Sprintf("%s/v1/blindedToken/%s/redemption/%s", server.URL, issuerResp.ID, preimageText)
+	_, err = request("GET", checkURL, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

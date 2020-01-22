@@ -2,7 +2,6 @@ package server
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"os"
 
@@ -124,10 +123,9 @@ func (c *Server) blindedTokenRedeemHandler(w http.ResponseWriter, r *http.Reques
 
 func (c *Server) blindedTokenRedemptionHandler(w http.ResponseWriter, r *http.Request) *handlers.AppError {
 	if issuerID := chi.URLParam(r, "id"); issuerID != "" {
-		tokenID := r.FormValue("tokenId")
+		tokenID := chi.URLParam(r, "tokenId")
 
 		issuer, err := c.fetchIssuer(issuerID)
-		fmt.Println(err)
 		if err != nil {
 			return &handlers.AppError{
 				Message: err.Error(),
@@ -187,6 +185,6 @@ func (c *Server) tokenRouter() chi.Router {
 	}
 	r.Method(http.MethodPost, "/{type}", middleware.InstrumentHandler("IssueTokens", handlers.AppHandler(c.blindedTokenIssuerHandler)))
 	r.Method(http.MethodPost, "/{type}/redemption/", middleware.InstrumentHandler("RedeemTokens", handlers.AppHandler(c.blindedTokenRedeemHandler)))
-	r.Method(http.MethodGet, "/{id}/redemption/", middleware.InstrumentHandler("CheckToken", handlers.AppHandler(c.blindedTokenRedemptionHandler)))
+	r.Method(http.MethodGet, "/{id}/redemption/{tokenId}", middleware.InstrumentHandler("CheckToken", handlers.AppHandler(c.blindedTokenRedemptionHandler)))
 	return r
 }
