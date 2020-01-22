@@ -368,42 +368,6 @@ func (c *Server) fetchRedemption(issuerType, ID string) (*Redemption, error) {
 	return nil, errRedemptionNotFound
 }
 
-func (c *Server) fetchRedemptionV2(issuerID, ID string) (*RedemptionV2, error) {
-	if c.caches != nil {
-		if cached, found := c.caches["redemptionsV2"].Get(fmt.Sprintf("%s:%s", issuerID, ID)); found {
-			return cached.(*RedemptionV2), nil
-		}
-	}
-
-	rows, err := c.db.Query(
-		`SELECT id, issuer_id, ts, payload FROM redemptions_v2 WHERE id = $1 AND issuer_id = $2`, ID, issuerID)
-
-	if err != nil {
-		return nil, err
-	}
-
-	defer rows.Close()
-
-	if rows.Next() {
-		var redemption = &RedemptionV2{}
-		if err := rows.Scan(&redemption.ID, &redemption.IssuerID, &redemption.Timestamp, &redemption.Payload); err != nil {
-			return nil, err
-		}
-
-		if c.caches != nil {
-			c.caches["redemptions"].SetDefault(fmt.Sprintf("%s:%s", issuerID, ID), redemption)
-		}
-
-		return redemption, nil
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return nil, errRedemptionNotFound
-}
-
 func convertDBIssuer(issuer issuer) (*Issuer, error) {
 	Issuer := Issuer{
 		ID:         issuer.ID,

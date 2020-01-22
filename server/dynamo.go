@@ -19,6 +19,35 @@ func (c *Server) initDynamo() {
 	c.dynamo = svc
 }
 
+func (c *Server) fetchRedemptionV2(issuer *Issuer, ID string) (*RedemptionV2, error) {
+	input := &dynamodb.GetItemInput{
+		TableName: aws.String("redemption"),
+		Key: map[string]*dynamodb.AttributeValue{
+			"issuerId": {
+				S: aws.String(issuer.ID),
+			}, "id": {
+				S: aws.String(ID),
+			},
+		},
+	}
+	result, err := c.dynamo.GetItem(input)
+	if err != nil {
+		return nil, err
+	}
+
+	redemption := RedemptionV2{}
+
+	err = dynamodbattribute.UnmarshalMap(result.Item, &redemption)
+	if err != nil {
+		panic(err)
+	}
+
+	if redemption.IssuerID == "" {
+		return nil, errRedemptionNotFound
+	}
+	return &redemption, nil
+}
+
 func (c *Server) redeemTokenV2(issuer *Issuer, preimageTxt []byte, payload string) error {
 	redemption := RedemptionV2{
 		IssuerID: issuer.ID,

@@ -134,7 +134,7 @@ func (c *Server) blindedTokenRedemptionHandler(w http.ResponseWriter, r *http.Re
 		}
 
 		if issuer.Version == 2 {
-			redemption, err := c.fetchRedemptionV2(issuerID, tokenID)
+			redemption, err := c.fetchRedemptionV2(issuer, tokenID)
 			if err != nil {
 				if err == errRedemptionNotFound {
 					return &handlers.AppError{
